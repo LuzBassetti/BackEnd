@@ -1,23 +1,22 @@
 const { promises: fs } = require('fs');
-const path = require('path');
 
 class ProductManager {
-    constructor() {
+    constructor(path) {
+        this.path = path;
         this.products = [];
-        this.productId = 1;
-        this.path = `./products.json`;
     }
 
-    async addProduct(title, description, price, thumbnail, code, stock) {
+    async addProduct(productData) {
         try {
-            // Se carga el contenido del archivo antes de realizar cualquier operación con los productos
-            this.products = await this.readProductsFile();
+            const { title, description, price, thumbnail, code, stock } = productData;
 
             // Validar campos obligatorios
             if (!title || !description || !price || !thumbnail || !code || !stock) {
                 console.error("Todos los campos son obligatorios.");
                 return;
             }
+
+            this.products = await this.readProductsFile();
 
             // Validar que no se repita el campo "code"
             if (this.products.some(product => product.code === code)) {
@@ -27,7 +26,7 @@ class ProductManager {
 
             // Agregar producto con id autoincrementable
             const newProduct = {
-                id: this.productId++,
+                id: this.products.length > 0 ? Math.max(...this.products.map(product => product.id)) + 1 : 1,
                 title,
                 description,
                 price,
@@ -37,8 +36,6 @@ class ProductManager {
             };
 
             this.products.push(newProduct);
-
-            // Se guarda el contenido actualizado del archivo
             await this.saveProductsFile(this.products);
 
             console.log('Producto creado correctamente.');
@@ -48,55 +45,101 @@ class ProductManager {
         }
     }
 
-    getProducts() {
-        return this.products;
+    async getProducts() {
+        return await this.readProductsFile();
     }
 
-    getProductById(id) {
-        const product = this.products.find(product => product.id === id);
+    async getProductById(id) {
+        const products = await this.readProductsFile();
+        const product = products.find(product => product.id === id);
         if (!product) {
             console.error("Producto no encontrado");
         }
         return product;
     }
 
+    async updateProduct(id, updatedFields) {
+        try {
+            let products = await this.readProductsFile();
+            const index = products.findIndex(product => product.id === id);
+            if (index === -1) {
+                console.error("Producto no encontrado");
+                return;
+            }
+            products[index] = { ...products[index], ...updatedFields };
+            await this.saveProductsFile(products);
+            console.log('Producto actualizado correctamente.');
+        } catch (error) {
+            console.error('Error al actualizar el producto:', error);
+        }
+    }
+
     async readProductsFile() {
         try {
-            // Verificar si el archivo existe
-            const filePath = path.join(__dirname, this.path);
-            if (!fs.existsSync(filePath)) {
-                await this.saveProductsFile([]); // Si no existe, crear un archivo vacío
-            }
-
-            // Leer el archivo y devolver los datos
-            const data = await fs.readFile(filePath, 'utf-8');
+            const data = await fs.readFile(this.path, 'utf-8');
             return JSON.parse(data);
         } catch (error) {
-            console.error('Error al leer el archivo de productos:', error);
-            return [];
+            if (error.code === 'ENOENT') {
+                // Si el archivo no existe, devuelve un array vacío
+                return [];
+            } else {
+                throw error;
+            }
         }
     }
 
     async saveProductsFile(products) {
+        await fs.writeFile(this.path, JSON.stringify(products, null, 2));
+        console.log('Archivo guardado correctamente.');
+    }
+
+    async deleteProduct(id) {
         try {
-            // Guardar los productos en el archivo
-            const filePath = path.join(__dirname, this.path);
-            await fs.writeFile(filePath, JSON.stringify(products, null, 2));
-            console.log('Archivo guardado correctamente.');
+            let products = await this.readProductsFile();
+            products = products.filter(product => product.id !== id);
+            await this.saveProductsFile(products);
+            console.log('Producto eliminado correctamente.');
         } catch (error) {
-            console.error('Error al guardar el archivo de productos:', error);
+            console.error('Error al eliminar el producto:', error);
         }
     }
 }
 
-// Ejemplo de uso
-const manager = new ProductManager();
+// Función principal asincrónica para ejecutar el código
+async function main() {
+    // Ejemplo de uso
+    const manager = new ProductManager('./products.json');
 
-console.log(manager.getProducts()); // Ejemplo con array vacio
+    console.log(await manager.getProducts()); // Ejemplo con array vacío
 
-manager.addProduct("Producto prueba", "Este es un producto de prueba", 200, "Sin imagen", "abc123", 25);
-manager.addProduct("Producto prueba", "Este es un producto de prueba", 200, "Sin imagen", "abc123", 25); // Ejemplo de codigo repetido
-console.log(manager.getProducts());
+    await manager.addProduct({
+        title: "Producto prueba",
+        description: "Este es un producto de prueba",
+        price: 200,
+        thumbnail: "Sin imagen",
+        code: "abc123",
+        stock: 25
+    });
 
-console.log(manager.getProductById(1)); // Ejemplo de buscar un producto por id existente
-console.log(manager.getProductById(2)); // Ejemplo de buscar un producto por id inexistente
+    await manager.addProduct({
+        title: "Producto prueba 2",
+        description: "Este es otro producto de prueba",
+        price: 250,
+        thumbnail: "Sin imagen",
+        code: "def456",
+        stock: 20
+    });
+
+    console.log(await manager.getProducts());
+
+    console.log(await manager.getProductById(1)); // Ejemplo de buscar un producto por id existente
+
+    await manager.updateProduct(1, { title: "Producto actualizado", price: 300 }); // Ejemplo de actualizar un producto
+    console.log(await manager.getProducts());
+
+    await manager.deleteProduct(1); // Ejemplo de eliminar un producto
+    console.log(await manager.getProducts());
+}
+
+// Llamar a la función principal
+main().catch(error => console.error(error));
